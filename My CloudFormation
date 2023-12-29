@@ -1,0 +1,147 @@
+# Automation script for CloudFormation templates. 
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  KeyName:
+    Type: String
+    Description: SantyEC2Keypair               # Verified  My Keypair created already in console
+
+Resources:
+  # VPC: Virtual Private Cloud                 # Verified
+  SantyVPC:                                    # Verified
+    Type: 'AWS::EC2::VPC'                      # Verified
+      CidrBlock: '10.0.0.0/16'                 # Verified 
+      EnableDnsSupport: 'true'                 # Verified
+      EnableDnsHostnames: 'true'               # can be removed
+
+
+  # Internet Gateway - Enables Internet communication for VPC
+  SantyInternetGateway:                        # Verified
+    Type: 'AWS::EC2::InternetGateway'          # Verified
+
+  SantyVPCGatewayAttachment:                   # Verified
+    Type: 'AWS::EC2::VPCGatewayAttachment'     # Verified
+    Properties:                                # Verified
+      InternetGatewayId: !Ref SantyInternetGateway    # Verified
+      VpcId: !Ref SantyVPC                     # Verified
+
+  # Subnet Configuration - Sub networks with in the VPC 
+  # Reference Learning - https://learn.udacity.com/nanodegrees/nd9991/parts/cd12352/lessons/6463cf92-95ea-4a5a-86a1-45ca374480e2/concepts/f3687f19-e945-4b97-adf8-11579e931021
+
+  SantyPrivateSubnet01:                                # Verified
+    Type: 'AWS::EC2::Subnet'                          # Verified
+    Properties:                                       # Verified
+      VpcId: !Ref SantyVPC                            # Verified
+      CidrBlock: '10.0.0.0/24'                        # Verified
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]     # Verified - A Default N.Virginia         
+      MapPublicIpOnLaunch: 'false'                    # Verified - 'false' for PRIVATE subnet
+
+
+  SantyPrivateSubnet02:                                     # Verified
+    Type: 'AWS::EC2::Subnet'                                # Verified
+    Properties:                                             # Verified
+      VpcId: !Ref SantyVPC                                  # Verified
+      CidrBlock: '10.0.1.0/24'                              # Verified
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]           # Verified - B Default N.Virginia
+      MapPublicIpOnLaunch: 'false'                          # Verified - 'false' for PRIVATE subnet
+
+  SantyPublicSubnet01:                                # Verified
+    Type: 'AWS::EC2::Subnet'                          # Verified
+    Properties:                                       # Verified
+      VpcId: !Ref SantyVPC                            # Verified
+      CidrBlock: '10.0.0.0/24'                        # Verified
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]     # Verified - A Default N.Virginia         
+      MapPublicIpOnLaunch: 'true'                     # Verified - 'true' for PUBLIC subnet
+
+  SantyPublicSubnet02:                                      # Verified
+    Type: 'AWS::EC2::Subnet'                                # Verified
+    Properties:                                             # Verified
+      VpcId: !Ref SantyVPC                                  # Verified
+      CidrBlock: '10.0.1.0/24'                              # Verified
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]           # Verified - B Default N.Virginia
+      MapPublicIpOnLaunch: 'true'                           # Verified - 'true' for PUBLIC subnet
+
+
+  # Adding a NAT Gateway to our VPC
+  # NAT Gateways have an hourly cost associated, so remember to delete them if you're not using them.
+  # The AllocationID property is a reference to a AWS::EC2::EIP resource (Elastic IP), and it is necessary for NAT Gateways to work correctly when associated with the public subnets inside our VPC.
+
+  Resources:
+    NatGateway1EIP:
+      Type: AWS::EC2::EIP
+      DependsOn: InternetGatewayAttachment
+      Properties: 
+        Domain: vpc
+
+    NatGateway2EIP:
+      Type: AWS::EC2::EIP
+      DependsOn: InternetGatewayAttachment
+      Properties:
+        Domain: vpc
+
+    NatGateway1: 
+      Type: AWS::EC2::NatGateway
+      Properties: 
+        AllocationId: !GetAtt NatGateway1EIP.AllocationId
+        SubnetId: !Ref SantyPublicSubnet01
+
+    NatGateway2: 
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId: !GetAtt NatGateway2EIP.AllocationId
+        SubnetId: !Ref SantyPublicSubnet02
+
+
+
+  # Elastic Load Balancer - To distribute incoming traffic across multiple EC2 instances for high availability and scalability
+  SantyLoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Subnets:
+        - !Ref SantyPrivateSubnet01
+        - !Ref SantyPrivateSubnet02
+      SecurityGroups:
+        - Fn::ImportValue: !Sub 'MySecurityGroupStack-SecurityGroup'
+
+  # Auto Scaling Group - To manage dynamic scaling of EC2 instances based on incoming traffic load
+  SantyAutoScalingGroup:
+    Type: 'AWS::AutoScaling::AutoScalingGroup'
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref SantyPrivateSubnet01
+        - !Ref SantyPrivateSubnet02
+      LaunchConfigurationName: !Ref SantyLaunchConfig
+      MinSize: '2'
+      MaxSize: '4'
+      DesiredCapacity: '2'
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: '300'
+
+  # Launch Configuration - To define configuration settings for the EC2 instances launched by Auto Scaling Group.
+ SantyLaunchConfig:
+    Type: 'AWS::AutoScaling::LaunchConfiguration'
+    Properties:
+      ImageId: ami-06938c7701be658b4 
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Additional user data scripts for configuring your instances
+
+  # RDS Database
+ SantyRDSDatabase:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      Engine: mysql
+      DBInstanceIdentifier:SantyRDSDatabase
+      MasterUsername: admin
+      MasterUserPassword: admin123
+      AllocatedStorage: '20'
+      DBInstanceClass: db.t2.micro
+      EngineVersion: '5.7'
+      MultiAZ: true
+
+Outputs:
+  WebsiteURL:
+    Description: 'URL for the website'
+    Value: !GetAtt [SantyLoadBalancer, DNSName]

@@ -1,0 +1,7 @@
+Resource:
+  SantyVSEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: us-east-1
+      ImageId: ami-06938c7701be658b4 
+      InstanceType: t2.micro
